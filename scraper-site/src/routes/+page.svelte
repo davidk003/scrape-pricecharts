@@ -134,10 +134,10 @@
                 pokemon-celestial-storm
             </Button>
             
-        <h2 class="text-3xl tracking-tight lg:text-3xl mt-3">Popular sets (Not tested)</h2>
+        <h2 class="text-3xl tracking-tight lg:text-3xl mt-3">Popular sets (Untested!)</h2>
         <span>
             {#each topSets as set}
-                <Button on:click={()=>{toScrape = set;document.getElementById("scraper-button")?.click()}}>
+                <Button class="m-0.5" on:click={()=>{toScrape = set;document.getElementById("scraper-button")?.click()}}>
                     {set}
                 </Button>
             {/each}
