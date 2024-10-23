@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Scrape pricecharts</title>
+  <meta name="viewport" content="width=devic5e-width,initial-scale=1" />
+  <meta name="description" content="" />
+  <!-- <link rel="icon" href="favicon.png"> -->
+</head>
+<body>
+    <script type="module" src="pokemon-scraper.js"></script>
+  <h1>Scrape your pricecharts set here</h1>
+
+  <label for="name">Set to scrape: </label>
+  <input type="text" id="setName" name="setName"/>
+  <button onclick="runScraperScript()">Scrape!</button>
+  <p> (ex: Find in the URL. https://www.pricecharting.com/console/pokemon-base-set => pokemon-base-set)</p>
+    <br>
+
+
+
+  <script>
+    document.getElementById("setName").value = "pokemon-base-set";
+  </script>
+  
+</body>
+</html>
