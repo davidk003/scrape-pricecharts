@@ -5,24 +5,6 @@ let running = false;
 let setName = "";
 let csvData:string = "";
 
-function outputAsDownload(csvText: string)
-{
-    // const text = output.join("\n");
-    const blob = new Blob([csvText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-
-    a.download = `${setName}-${new Date().toISOString()}.csv`;
-    document.body.appendChild(a);
-    a.click(); // Simulate a click to trigger the download
-    console.log("Dumped CSV")
-    setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }, 0);
-}
-
 class PokemonCard {
     name: string;
     fullName: string;
@@ -167,9 +149,10 @@ export async function GET({ url }) {
             catch{
                 console.log("Error")
                 cursor = undefined;
+                return json("Error")
             }
         })
-      .catch(error => {console.error('Error:', error);});
+      .catch(error => {console.error('Error:', error);return json("Error");});
     }
     scrapedCards.forEach(card => {if(card.name === card.fullName){console.log(`LIKELY ERROR CARD: ${card.name}`)}});
     csvData = csvjson.toCSV(JSON.stringify(scrapedCards), {headers: 'key'});

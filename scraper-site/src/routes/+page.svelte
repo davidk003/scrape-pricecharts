@@ -9,6 +9,7 @@
 
     let running = false;
     let toScrape = "";
+    let topSets: string[] = [];
     
     function outputAsDownload(csvText: string)
     {
@@ -64,9 +65,33 @@
 		}
 	}
 
+    async function getPopularSets()
+    {
+        let setUrl = "https://www.pricecharting.com/consoles-autocomplete/pokemon-cards"
+        await fetch(setUrl, {
+            method: "GET",
+            headers: {
+                "Content-Type": "text/plain",
+                "Connection": "keep-alive",
+            },
+        })
+        .then(response => response.json())
+        .then(data => {
+            data.forEach((element : any) => {
+                if(element?.label && element.label != "all" && topSets.length < 20)
+                {
+                    topSets = [...topSets, element.label];
+                }
+            });
+        });
+        console.log(topSets);
+    }
+
 	onMount(() => {
         hardcodedUrl = `${window.location.origin}/healthcheck`
 		checkEndpoint();
+        getPopularSets();
+        
 	});
 
     const loadingCircle = `<div role="status">
@@ -86,7 +111,7 @@
         
         <span class="flex">
             <Input class="mr-5 border-2 border-black" bind:value={toScrape}/>
-            <Button on:click={()=>{console.log(toScrape);runScraper();}}>
+            <Button id="scraper-button" on:click={()=>{console.log(toScrape);runScraper();}}>
                 {#if running}
                 {@html loadingCircle}
                 {:else}
@@ -94,7 +119,29 @@
                 {/if}
             </Button>
         </span>
-
+        <h2 class="text-3xl tracking-tight lg:text-3xl mt-3">Example sets to scrape (Click to scrape) </h2>
+        <span>
+            <Button on:click={()=>{toScrape = "pokemon-lost-origin";document.getElementById("scraper-button")?.click()}}>
+                pokemon-base-set
+            </Button>
+            <Button on:click={()=>{toScrape = "pokemon-lost-origin";document.getElementById("scraper-button")?.click()}}>
+                pokemon-lost-origin
+            </Button>
+            <Button on:click={()=>{toScrape = "pokemon-evolving-skies";document.getElementById("scraper-button")?.click()}}>
+                pokemon-evolving-skies
+            </Button>
+            <Button on:click={()=>{toScrape = "pokemon-celestial-storm";document.getElementById("scraper-button")?.click()}}>
+                pokemon-celestial-storm
+            </Button>
+            
+        <h2 class="text-3xl tracking-tight lg:text-3xl mt-3">Popular sets (Not tested)</h2>
+        <span>
+            {#each topSets as set}
+                <Button on:click={()=>{toScrape = set;document.getElementById("scraper-button")?.click()}}>
+                    {set}
+                </Button>
+            {/each}
+        </span>
     </div>
 
 
@@ -103,7 +150,7 @@
     <footer class="fixed bottom-0 right-0">
         <Card.Root class="w-full max-w-md mx-auto">
             <Card.Header>
-                <Card.Title>Endpoint Status Display</Card.Title>
+                <Card.Title>Backend Endpoint Status Display</Card.Title>
             </Card.Header>
             <Card.Content>
                 <div class="space-y-4">
