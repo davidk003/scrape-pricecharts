@@ -18,7 +18,7 @@
         const a = document.createElement('a');
         a.href = url;
 
-        a.download = `${toScrape}-${new Date().toISOString()}.csv`;
+        a.download = `${toScrape ? toScrape : "pokemon-base-set"}-${new Date().toISOString()}.csv`;
         document.body.appendChild(a);
         a.click(); // Simulate a click to trigger the download
         console.log("Dumped CSV")
