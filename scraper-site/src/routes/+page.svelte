@@ -49,21 +49,21 @@
         }
     }
 
-	let status = "";
-	let endPointLoad = true;
+    let status = "";
+    let endPointLoad = true;
 
-	let hardcodedUrl = "";
+    let hardcodedUrl = "";
 
-	async function checkEndpoint() {
-		try {
-			const response = await fetch(hardcodedUrl);
-			status = response.ok ? "success" : "error";
-		} catch (error) {
-			status = "error";
-		} finally {
-			endPointLoad = false;
-		}
-	}
+    async function checkEndpoint() {
+        try {
+            const response = await fetch(hardcodedUrl);
+            status = response.ok ? "success" : "error";
+        } catch (error) {
+            status = "error";
+        } finally {
+            endPointLoad = false;
+        }
+    }
 
     async function getPopularSets()
     {
@@ -87,12 +87,12 @@
         console.log(topSets);
     }
 
-	onMount(() => {
+    onMount(() => {
         hardcodedUrl = `${window.location.origin}/healthcheck`
-		checkEndpoint();
+        checkEndpoint();
         getPopularSets();
         
-	});
+    });
 
     const loadingCircle = `<div role="status">
     <svg aria-hidden="true" class="w-8 h-8 text-gray-200 animate-spin dark:text-gray-600 fill-blue-600" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -101,6 +101,12 @@
     </svg>
     <span class="sr-only">Loading...</span>
 </div>`;
+
+    let showCard = true;
+
+    function closeCard() {
+        showCard = false;
+    }
 </script>
 
 
@@ -137,39 +143,41 @@
         <h2 class="text-3xl tracking-tight lg:text-3xl mt-3">Popular sets (Untested!)</h2>
         <span>
             {#each topSets as set}
-                <Button class="m-0.5" on:click={()=>{toScrape = set;document.getElementById("scraper-button")?.click()}}>
-                    {set}
+                <Button class="m-0.5" on:click={()=>{toScrape = set.replaceAll(" ", "-");document.getElementById("scraper-button")?.click()}}>
+                    {set.replaceAll(" ", "-")}
                 </Button>
             {/each}
         </span>
     </div>
 
-
-
-
     <footer class="fixed bottom-0 right-0">
-        <Card.Root class="w-full max-w-md mx-auto">
-            <Card.Header>
-                <Card.Title>Backend Endpoint Status Display</Card.Title>
-            </Card.Header>
-            <Card.Content>
-                <div class="space-y-4">
-                    <p class="text-sm text-muted-foreground">Checking status for: {hardcodedUrl}</p>
-                    {#if endPointLoad}
-                        <p class="text-sm text-muted-foreground">Checking status...</p>
-                    {:else if status === "success"}
-                        <Alert.Root variant="default" class="bg-green-100 border-green-200">
-                            <CircleAlert class="h-4 w-4 text-green-600" />
-                            <Alert.Description class="text-green-800">Endpoint is up and running!</Alert.Description>
-                        </Alert.Root>
-                    {:else if status === "error"}
-                        <Alert.Root variant="destructive">
-                            <CircleAlert class="h-4 w-4" />
-                            <Alert.Description>Failed to connect to the endpoint.</Alert.Description>
-                        </Alert.Root>
-                    {/if}
-                </div>
-            </Card.Content>
-        </Card.Root>
+        {#if showCard}
+            <Card.Root class="w-full max-w-md mx-auto">
+                <Card.Header>
+                    <span class="flex">
+                        <Card.Title class="mt-3">Backend Endpoint Status Display</Card.Title>
+                        <Button on:click={closeCard} class="ml-auto">Close</Button>
+                    </span>
+                </Card.Header>
+                <Card.Content>
+                    <div class="space-y-4">
+                        <p class="text-sm text-muted-foreground">Checking status for: {hardcodedUrl}</p>
+                        {#if endPointLoad}
+                            <p class="text-sm text-muted-foreground">Checking status...</p>
+                        {:else if status === "success"}
+                            <Alert.Root variant="default" class="bg-green-100 border-green-200">
+                                <CircleAlert class="h-4 w-4 text-green-600" />
+                                <Alert.Description class="text-green-800">Endpoint is up and running!</Alert.Description>
+                            </Alert.Root>
+                        {:else if status === "error"}
+                            <Alert.Root variant="destructive">
+                                <CircleAlert class="h-4 w-4" />
+                                <Alert.Description>Failed to connect to the endpoint.</Alert.Description>
+                            </Alert.Root>
+                        {/if}
+                    </div>
+                </Card.Content>
+            </Card.Root>
+        {/if}
     </footer>
-</main> 
+</main>

@@ -128,7 +128,7 @@ export async function GET({ url }) {
     // while(running){
     //     console.log(scrapedCards[scrapedCards.length - 1])
     // }
-    console.log("Looping cursor")
+    console.log(`URL on: https://www.pricecharting.com/console/${setName}?sort=model-number&cursor=${cursor}&format=json`)
     while(cursor !== undefined)
     {
         let newURL = `https://www.pricecharting.com/console/${setName}?sort=model-number&cursor=${cursor}&format=json`;
