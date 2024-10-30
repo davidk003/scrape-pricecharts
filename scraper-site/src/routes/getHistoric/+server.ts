@@ -37,7 +37,7 @@ export async function GET({ url  }) {
 
             pokemonGradingMap.forEach((value, key) => {
                 if (ret[value]) {
-                    console.log(value)
+                    // console.log(value)
                     ret[key] = ret[value];
                     delete ret[value];
                 }
