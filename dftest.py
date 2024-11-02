@@ -31,31 +31,33 @@ setMap = {s["name"].lower(): s for s in setList}
 df['console-name'] = df['console-name'].apply(lambda x: ' '.join(x.split()[1:]) if x.split()[0].lower() == 'pokemon' else x)
 df['console-name'] = df['console-name'].apply(lambda x: x.lower())
 df = df[df['product-name'].str.contains("#")]
+print(dict(df['console-name'].value_counts()))
 finalMap = defaultdict(set) #MAP Price guide ids to TCG ids or None.
 count = 0
 notDone = []
 print(len(df2)==len(df2["id"].unique()))
 matched = 0
 for index, row in df.iterrows():
+    PCSetName = row["console-name"]
     matches = re.findall(numberRegex, row["product-name"])
     # if(not matches[0].isnumeric()):
     #     notDone.append(row)
     # else:
-    if row["console-name"] in setMap:
+    if PCSetName in setMap:
         # if int(matches[0]) < setMap[row["console-name"]]["total"]:
-        if setMap[row["console-name"]]["id"] + "-" +  matches[0] in id_set:
-            finalMap[row["id"]] =  setMap[row["console-name"]]["id"] + "-" +  matches[0]
+        if setMap[PCSetName]["id"] + "-" +  matches[0] in id_set:
+            finalMap[row["id"]] =  setMap[PCSetName]["id"] + "-" +  matches[0]
             id_set.remove(setMap[row["console-name"]]["id"] + "-" +  matches[0])
             count+=1
-    if row["console-name"] in PCtoTCG:
-        if PCtoTCG[row["console-name"]] == setMap[row["console-name"]]["name"]:
-            if (setMap[row["console-name"]] + "-" + matches[0]) in id_set:
-                
-
+    # if PCSetName in PCtoTCG:
+    #     if PCtoTCG[PCSetName] in setMap:
+    #         if (setMap[PCtoTCG[PCSetName]]["id"] + "-" + matches[0]) in id_set:
+    #             finalMap[row["id"]] =  setMap[PCtoTCG[PCSetName]]["id"] + "-" +  matches[0]
+    #             id_set.remove(setMap[PCtoTCG[PCSetName]]["id"] + "-" +  matches[0])
+    #             count+=1
 
 id_set_df = pd.DataFrame(list(id_set), columns=['id'])
 id_set_df.to_csv('id_set.csv', index=False)
-print(id_set)
+# print(id_set)
 print(len(df))
 print(count)
-
