@@ -6,19 +6,23 @@ import re
 TCG_SET_JSON = "TCG-sets.json"
 TCGtoPC = {"firered & leafgreen":"Fire Red & Leaf Green",
              "kalos starter set": "kalos starter",
-             "hs—unleashed": "unleashed",
-             "hs—triumphant": "triumphant",
+             "HS—Unleashed": "unleashed",
+             "HS—Triumphant": "triumphant",
              "hs—undaunted": "undaunted",
              "base": "base set",
             "151" : "Scarlet & Violet 151",
             "Team Magma vs Team Aqua" : "Team Magma & Team Aqua",
             "expedition base set" : "expedition",
             "pokémon go": "pokemon go",
+            "Pokémon GO" : "go",
             }
-PCtoTCG = {value: key for key, value in TCGtoPC.items()}
+
+for i in range(11,25):
+    TCGtoPC["McDonald's Collection 20{i}"] = "mcdonalds 20{i}"
+PCtoTCG = {value.lower(): key.lower() for key, value in TCGtoPC.items()}
 numberRegex = r"#(\S+)"
 re.compile(numberRegex)
-obj = json.load(open(TCG_SET_JSON))
+obj = json.load(open(TCG_SET_JSON, encoding='utf-8'))
 df = pd.read_csv("price-guide.csv", low_memory=False)
 
 df2 = pd.read_csv("pokemon-tcg-dataset(1999-2023).csv", low_memory=False)
@@ -27,37 +31,113 @@ id_set = set(df2['id'])
 setList = obj["data"]
 setNameList = [s["name"].lower() for s in setList]
 setMap = {s["name"].lower(): s for s in setList}
+setidMap = {s["id"].lower(): s for s in setList}
 
 df['console-name'] = df['console-name'].apply(lambda x: ' '.join(x.split()[1:]) if x.split()[0].lower() == 'pokemon' else x)
 df['console-name'] = df['console-name'].apply(lambda x: x.lower())
+df = df[~df['console-name'].str.contains('japanese', case=False, na=False)]
+df = df[~df['console-name'].str.contains('topps', case=False, na=False)]
+
+
 df = df[df['product-name'].str.contains("#")]
-print(dict(df['console-name'].value_counts()))
-finalMap = defaultdict(set) #MAP Price guide ids to TCG ids or None.
-count = 0
+unseenSets = dict(df['console-name'].value_counts())
+# print(unseenSets)
+
+finalMap = defaultdict(set) #Map of Price guide ids to TCG ids or None.
+totalConverted = 0
+rawConverted = 0
+promoConverted = 0
+manualConverted = 0
 notDone = []
 print(len(df2)==len(df2["id"].unique()))
 matched = 0
 for index, row in df.iterrows():
     PCSetName = row["console-name"]
     matches = re.findall(numberRegex, row["product-name"])
-    # if(not matches[0].isnumeric()):
-    #     notDone.append(row)
-    # else:
-    if PCSetName in setMap:
-        # if int(matches[0]) < setMap[row["console-name"]]["total"]:
+    onlyAlpha = ''.join([char for char in matches[0].lower() if char.isalpha()])
+    onlyNumeric = ''.join([char for char in matches[0] if char.isnumeric()])
+    if PCSetName == "hidden fates" or PCSetName == "shining fates":
+        if onlyAlpha == "sv":
+            PCSetName += " shiny vault"
+            # print(PCSetName + matches[0])
+
+    elif onlyAlpha == "gg": #  Crown Zenith Galarian Gallery -> swsh12pt5gg
+        if "swsh12pt5gg" + "-" + matches[0] in id_set:
+            finalMap[row["id"]] = "swsh12pt5gg" + "-" + matches[0]
+            manualConverted+=1
+    elif onlyAlpha == "tg": #Other trainer galleries
+        if PCSetName in setList:
+            if setMap[PCSetName]["id"]+ "tg" + "-" + matches[0] in id_set:
+                print(setMap[PCSetName]["id"]+ "tg" + "-" + matches[0])
+                # finalMap[row["id"]] = setMap[PCSetName]["id"] + "-" + matches[0]
+                # manualConverted+=1
+        else:
+            print(PCSetName + matches[0])
+
+    if PCSetName in setMap: #Raw cleaned name check
+        if PCSetName in unseenSets:
+            unseenSets[PCSetName]-=1
+        # if int(matches[0]) < setMap[row["console-name"]]["printedTotal"]:
         if setMap[PCSetName]["id"] + "-" +  matches[0] in id_set:
             finalMap[row["id"]] =  setMap[PCSetName]["id"] + "-" +  matches[0]
-            id_set.remove(setMap[row["console-name"]]["id"] + "-" +  matches[0])
-            count+=1
-    # if PCSetName in PCtoTCG:
-    #     if PCtoTCG[PCSetName] in setMap:
-    #         if (setMap[PCtoTCG[PCSetName]]["id"] + "-" + matches[0]) in id_set:
-    #             finalMap[row["id"]] =  setMap[PCtoTCG[PCSetName]]["id"] + "-" +  matches[0]
-    #             id_set.remove(setMap[PCtoTCG[PCSetName]]["id"] + "-" +  matches[0])
-    #             count+=1
+            # id_set.remove(setMap[row["console-name"]]["id"] + "-" +  matches[0])
+            rawConverted+=1
 
+
+    if PCSetName in PCtoTCG and PCtoTCG[PCSetName] in setMap: #Manual name check
+        if (setMap[PCtoTCG[PCSetName]]["id"] + "-" + matches[0]) in id_set:
+            finalMap[row["id"]] = (setMap[PCtoTCG[PCSetName]]["id"] + "-" + matches[0])
+            # id_set.remove(setMap[PCtoTCG[PCSetName]]["id"] + "-" + matches[0])
+            manualConverted+=1
+    else:
+        if PCSetName == "unleashed" or PCSetName == "triumphant" or PCSetName == "undaunted":
+            if PCtoTCG[PCSetName] not in setMap:
+                print(PCtoTCG[PCSetName])
+            # if "hs-" + PCSetName in setMap:
+            #     if ("hs-" + PCSetName + "-" + matches[0]) in id_set:
+            #         finalMap[row["id"]] = ("hs-" + PCSetName + "-" + matches[0])
+            #         # id_set.remove("hs-" + PCSetName + "-" + matches[0])
+            #         manualConverted+=1
+# 1527 promo cards
+# If console-name is promo, check name's # regex -> The letters caught in the numbers regex -> search TCG series -> convert to id and keep # regex as number for id.
+    if PCSetName == "promo": #Promo case
+        onlyAlpha+="p"
+        if  onlyAlpha in setidMap:
+            if int(onlyNumeric) <= setidMap[onlyAlpha]["printedTotal"]:
+                if (setidMap[onlyAlpha]["id"] + "-" + matches[0].upper()) in id_set:
+                    finalMap[row["id"]] = setidMap[onlyAlpha]["id"] + "-" + matches[0]
+                    # id_set.remove(setidMap[onlyAlpha]["id"] + "-" + matches[0])
+                    promoConverted+=1
+                else:
+                    print(matches[0])
+        if onlyAlpha == "SV":
+            print(PCSetName)
+
+
+
+unseenTotal = 0
+# for k in unseenSets.keys():
+#     if unseenSets[k] > 1:
+#         print(f"{k}: {unseenSets[k]}")
+#         unseenTotal+=unseenSets[k]
+print(f"Total rows: {len(df)}")
+print(f"Total converted: {promoConverted+manualConverted+rawConverted}")
+print(f"Total unseen sets: {unseenTotal}")
+print(f"Total promo converted: {promoConverted}")
+print(f"Total manual converted: {manualConverted}")
+print(f"Total raw converted: {rawConverted}")
+
+for k in finalMap.keys():
+    if finalMap[k] in id_set:
+        id_set.remove(finalMap[k])
 id_set_df = pd.DataFrame(list(id_set), columns=['id'])
+id_set_df['id'] = id_set_df['id'].apply(lambda x: x.split("-")[0])
 id_set_df.to_csv('id_set.csv', index=False)
-# print(id_set)
-print(len(df))
-print(count)
+# print(id_set_df['id'].value_counts())
+
+dfFinal = pd.DataFrame(finalMap.items(), columns=["id", "tcg_id"])
+dfFinal.to_csv('final_map.csv', index=False)
+print(len(dfFinal["id"].unique())==len(dfFinal["id"]))
+for k in setMap.keys():
+    if "hs" in k:
+        print(k)
