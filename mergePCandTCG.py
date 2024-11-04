@@ -24,7 +24,4 @@ df_total.dropna(subset=['id_x'], inplace=True)
 df_total.rename(columns={'id_x': 'id'}, inplace=True)
 first = df_total.pop('tcg_id')
 df_total.insert(0, 'tcg_id', first)
-
-df_total
-
 df_total.to_csv("combined_dataset.csv", index=False)

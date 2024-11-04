@@ -1,10 +1,12 @@
 import pandas as pd
 from collections import defaultdict
-import json
+import json 
 from unidecode import unidecode
 
 TCG_SET_JSON= "TCG-sets.json"
+PG_FILE = "price-guide.csv"
 SET_BLACKLIST= ["nintendo black star promos", "wizards black star promos"] #No consistent naming schemes
+
 
 obj = json.load(open(TCG_SET_JSON, encoding='utf-8'))
 
@@ -28,7 +30,7 @@ print(f"Number of sets with less than 25 cards: {sum((s['total'] < 25) for s in 
 print(f"Number of sets with less than 50 cards: {sum((s['total'] < 50) for s in setList)}")
 print(f"Number of sets with less than 100 cards: {sum((s['total'] < 100) for s in setList)}")
 print("----------- price guide analysis --------------")
-df = pd.read_csv("price-guide.csv")
+df = pd.read_csv(PG_FILE)
 print(f"All ids are unique:{len(df['id']) == len(df['id'].unique())}") #Ids are unique
 print(f"Num of cards: {len(df['id'])}")
 print(f"Number of unique sets: {len(df['console-name'].unique())}")
@@ -107,16 +109,3 @@ for k in unmatched.keys():
         potentialCards+=unmatched[k]
         num +=1
 print(f"Potential cards left: {potentialCards}")
-TCGtoPC = {"firered & leafgreen":"Fire Red & Leaf Green",
-             "kalos starter set": "kalos starter",
-             "hs—unleashed": "unleashed",
-             "hs—triumphant": "triumphant",
-             "hs—undaunted": "undaunted",
-             "base": "base set",
-            "151" : "Scarlet & Violet 151",
-            "Team Magma vs Team Aqua" : "Team Magma & Team Aqua",
-            "expedition base set" : "expedition",
-            "pokémon go": "pokemon go",
-            }
-# For hidden fates and shining fates check #SV in name.
-print(num)

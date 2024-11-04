@@ -4,6 +4,8 @@ from collections import defaultdict
 import re
 
 TCG_SET_JSON = "TCG-sets.json"
+PG_FILE = "price-guide.csv"
+TCG_FILE = "pokemon-tcg-dataset(1999-2023).csv"
 TCGtoPC = {"firered & leafgreen":"Fire Red & Leaf Green",
              "kalos starter set": "kalos starter",
              "HS—Unleashed": "unleashed",
@@ -23,9 +25,9 @@ PCtoTCG = {value.lower(): key.lower() for key, value in TCGtoPC.items()}
 numberRegex = r"#(\S+)"
 re.compile(numberRegex)
 obj = json.load(open(TCG_SET_JSON, encoding='utf-8'))
-df = pd.read_csv("price-guide.csv", low_memory=False)
+df = pd.read_csv(PG_FILE, low_memory=False)
 
-df2 = pd.read_csv("pokemon-tcg-dataset(1999-2023).csv", low_memory=False)
+df2 = pd.read_csv(TCG_FILE, low_memory=False)
 id_set = set(df2['id'])
 
 setList = obj["data"]
@@ -35,12 +37,9 @@ setidMap = {s["id"].lower(): s for s in setList}
 
 df['console-name'] = df['console-name'].apply(lambda x: ' '.join(x.split()[1:]).lower() if x.split()[0].lower() == 'pokemon' else x.lower())
 df = df[~df['console-name'].str.contains('japanese|topps', case=False, na=False)]
-
-
-
 df = df[df['product-name'].str.contains("#")]
+
 unseenSets = dict(df['console-name'].value_counts())
-# print(unseenSets)
 
 finalMap = defaultdict(set) #Map of Price guide ids to TCG ids or None.
 totalConverted = 0
@@ -91,10 +90,7 @@ for index, row in df.iterrows():
                     print(matches[0])
 
 unseenTotal = 0
-# for k in unseenSets.keys():
-#     if unseenSets[k] > 1:
-#         print(f"{k}: {unseenSets[k]}")
-#         unseenTotal+=unseenSets[k]
+
 print(f"Total rows: {len(df)}")
 print(f"Total converted: {promoConverted+manualConverted+rawConverted}")
 print(f"Total unseen sets: {unseenTotal}")
