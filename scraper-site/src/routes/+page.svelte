@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount } from "svelte";
+    import { slide } from "svelte/transition";
     import {
         Button,
         Search,
@@ -71,6 +72,7 @@
     let status = "";
     let endPointLoad = true;
     let hardcodedUrl = "";
+    let showStatusBar = true;
 
     async function checkEndpoint() {
         try {
@@ -80,7 +82,14 @@
             status = "error";
         } finally {
             endPointLoad = false;
+            if (status === "success") {
+                setTimeout(() => { showStatusBar = false; }, 4000);
+            }
         }
+    }
+
+    function dismissStatusBar() {
+        showStatusBar = false;
     }
 
     async function getPopularSets() {
@@ -122,32 +131,33 @@
 
 <NotificationQueue bind:this={queue} />
 
-<Grid>
-    <!-- Status banner -->
-    <Row>
-        <Column>
-            {#if endPointLoad}
-                <div class="status-bar status-bar--loading">
-                    <InlineLoading description="Connecting to backend..." />
-                </div>
-            {:else if status === "success"}
-                <InlineNotification
-                    kind="success"
-                    title="Backend connected"
-                    subtitle="Ready to scrape — {hardcodedUrl}"
-                    hideCloseButton
-                />
-            {:else}
-                <InlineNotification
-                    kind="error"
-                    title="Backend unavailable"
-                    subtitle="Could not reach {hardcodedUrl}"
-                    hideCloseButton
-                />
-            {/if}
-        </Column>
-    </Row>
+{#if showStatusBar}
+    <div class="status-dropdown" transition:slide={{ duration: 300 }}>
+        {#if endPointLoad}
+            <div class="status-dropdown__inner status-dropdown__inner--loading">
+                <InlineLoading description="Connecting to backend..." />
+            </div>
+        {:else if status === "success"}
+            <div class="status-dropdown__inner status-dropdown__inner--success">
+                <span class="status-dropdown__icon">✓</span>
+                <span class="status-dropdown__text">
+                    <strong>Backend connected</strong> — Ready to scrape
+                </span>
+                <button class="status-dropdown__dismiss" on:click={dismissStatusBar} aria-label="Dismiss">✕</button>
+            </div>
+        {:else}
+            <div class="status-dropdown__inner status-dropdown__inner--error">
+                <span class="status-dropdown__icon">!</span>
+                <span class="status-dropdown__text">
+                    <strong>Backend unavailable</strong> — Could not reach {hardcodedUrl}
+                </span>
+                <button class="status-dropdown__dismiss" on:click={dismissStatusBar} aria-label="Dismiss">✕</button>
+            </div>
+        {/if}
+    </div>
+{/if}
 
+<Grid>
     <!-- Hero section -->
     <Row>
         <Column lg={10} md={6} sm={4}>
@@ -234,5 +244,73 @@
     h3 {
         font-size: 1.25rem;
         font-weight: 400;
+    }
+
+    .status-dropdown {
+        position: fixed;
+        top: 3rem; /* sits directly below the Carbon Header */
+        left: 0;
+        right: 0;
+        z-index: 8000;
+        overflow: hidden;
+    }
+    .status-dropdown__inner {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.625rem 1rem;
+        font-size: 0.875rem;
+        line-height: 1.3;
+    }
+    .status-dropdown__inner--success {
+        background: #defbe6;
+        border-bottom: 1px solid #a7f0ba;
+        color: #044317;
+    }
+    .status-dropdown__inner--error {
+        background: #fff1f1;
+        border-bottom: 1px solid #ffd7d9;
+        color: #750e13;
+    }
+    .status-dropdown__inner--loading {
+        background: var(--cds-layer-01, #f4f4f4);
+        border-bottom: 1px solid var(--cds-border-subtle, #e0e0e0);
+        padding: 0.5rem 1rem;
+    }
+    .status-dropdown__icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.25rem;
+        height: 1.25rem;
+        border-radius: 50%;
+        font-size: 0.75rem;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+    .status-dropdown__inner--success .status-dropdown__icon {
+        background: #198038;
+        color: #fff;
+    }
+    .status-dropdown__inner--error .status-dropdown__icon {
+        background: #da1e28;
+        color: #fff;
+    }
+    .status-dropdown__text {
+        flex: 1;
+    }
+    .status-dropdown__dismiss {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0.25rem;
+        opacity: 0.7;
+        color: inherit;
+        flex-shrink: 0;
+    }
+    .status-dropdown__dismiss:hover {
+        opacity: 1;
     }
 </style>

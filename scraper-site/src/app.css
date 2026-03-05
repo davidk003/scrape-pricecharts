@@ -17,26 +17,3 @@
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--cds-spacing-05, 1rem);
 }
-
-.status-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--cds-spacing-05, 1rem);
-  padding: var(--cds-spacing-05, 1rem);
-  border-radius: 0;
-  margin-bottom: var(--cds-spacing-07, 2rem);
-}
-
-.status-bar--success {
-  background: var(--cds-support-success, #198038);
-  color: #fff;
-}
-
-.status-bar--error {
-  background: var(--cds-support-error, #da1e28);
-  color: #fff;
-}
-
-.status-bar--loading {
-  background: var(--cds-layer-01, #f4f4f4);
-}
