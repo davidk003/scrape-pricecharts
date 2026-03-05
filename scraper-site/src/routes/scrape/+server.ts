@@ -59,6 +59,49 @@ function jsonToPokemonCard(priceChartingProduct: any): PokemonCard
     );
 }
 
+const PAGE_DELAY_MS = 250;
+const MAX_RETRIES = 4;
+const INITIAL_BACKOFF_MS = 2000;
+
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(fetchUrl: string): Promise<any> {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const res: Response = await fetch(fetchUrl);
+
+        if (res.ok) {
+            const contentType: string = res.headers.get('content-type') || '';
+            if (!contentType.includes('json')) {
+                const body: string = await res.text();
+                if (body.trimStart().startsWith('<')) {
+                    throw new Error(`Expected JSON but got HTML (status ${res.status})`);
+                }
+                return JSON.parse(body);
+            }
+            return await res.json();
+        }
+
+        if (res.status === 429 && attempt < MAX_RETRIES) {
+            const backoff: number = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+            console.log(`Rate limited (429), retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+            await delay(backoff);
+            continue;
+        }
+
+        if (res.status >= 400 && attempt < MAX_RETRIES) {
+            const backoff: number = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+            console.log(`HTTP ${res.status}, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+            await delay(backoff);
+            continue;
+        }
+
+        throw new Error(`HTTP ${res.status} after ${attempt + 1} attempts`);
+    }
+    throw new Error(`Failed after ${MAX_RETRIES + 1} attempts`);
+}
+
 export async function GET({ url }) {
     const paramInput = url.searchParams.get('set-name');
     const setName = paramInput ? paramInput : "pokemon-base-set";
@@ -70,8 +113,7 @@ export async function GET({ url }) {
     {
         const newURL: string = `https://www.pricecharting.com/console/${encodeURIComponent(setName)}?sort=model-number&cursor=${cursor}&format=json`;
         try {
-            const res: Response = await fetch(newURL);
-            const data: any = await res.json();
+            const data: any = await fetchWithRetry(newURL);
 
             if (data.products && Array.isArray(data.products)) {
                 data.products.forEach((product: any) => {
@@ -80,8 +122,16 @@ export async function GET({ url }) {
             }
 
             cursor = data.cursor != null ? String(data.cursor) : undefined;
+
+            if (cursor !== undefined) {
+                await delay(PAGE_DELAY_MS);
+            }
         } catch (error) {
-            console.error('Scrape fetch error:', error);
+            console.error(`Scrape error for ${setName} at cursor=${cursor}:`, error);
+            if (scrapedCards.length > 0) {
+                console.log(`Returning ${scrapedCards.length} cards scraped before error`);
+                break;
+            }
             return json("Error");
         }
     }
