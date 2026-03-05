@@ -20,6 +20,8 @@
     let topSets: string[] = [];
     let queue: any;
 
+    let scrapeProgress = { page: 0, cards: 0, done: false };
+
     function outputAsDownload(csvText: string) {
         const blob = new Blob([csvText], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
@@ -37,25 +39,66 @@
     async function runScraper() {
         if (!running && toScrape.trim()) {
             running = true;
+            scrapeProgress = { page: 0, cards: 0, done: false };
             try {
                 const response = await fetch(
                     `${window.location.origin}/scrape?set-name=${encodeURIComponent(toScrape.trim())}`,
-                    {
-                        method: "GET",
-                        headers: {
-                            "Content-Type": "text/plain",
-                            Connection: "keep-alive",
-                        },
-                    }
                 );
-                const data = await response.json();
-                outputAsDownload(data);
-                queue?.add({
-                    kind: "success",
-                    title: "Download ready",
-                    subtitle: `${toScrape} scraped successfully. CSV downloaded.`,
-                    timeout: 5000,
-                });
+
+                if (!response.body) {
+                    throw new Error("No response body");
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let csvData = "";
+                let gotComplete = false;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    const parts = buffer.split("\n\n");
+                    buffer = parts.pop() || "";
+
+                    for (const part of parts) {
+                        const lines = part.split("\n");
+                        let eventType = "";
+                        let eventData = "";
+                        for (const line of lines) {
+                            if (line.startsWith("event: ")) eventType = line.slice(7);
+                            else if (line.startsWith("data: ")) eventData = line.slice(6);
+                        }
+                        if (!eventType || !eventData) continue;
+
+                        const parsed = JSON.parse(eventData);
+
+                        if (eventType === "progress") {
+                            scrapeProgress = { page: parsed.page, cards: parsed.cards, done: parsed.done };
+                        } else if (eventType === "complete") {
+                            csvData = parsed.csv;
+                            scrapeProgress = { page: scrapeProgress.page, cards: parsed.cards, done: true };
+                            gotComplete = true;
+                        } else if (eventType === "error") {
+                            throw new Error(parsed.message);
+                        }
+                    }
+                }
+
+                if (gotComplete && csvData) {
+                    outputAsDownload(csvData);
+                    queue?.add({
+                        kind: "success",
+                        title: "Download ready",
+                        subtitle: `${toScrape} scraped successfully — ${scrapeProgress.cards} cards. CSV downloaded.`,
+                        timeout: 5000,
+                    });
+                } else {
+                    throw new Error("Stream ended without completion");
+                }
             } catch (err) {
                 queue?.add({
                     kind: "error",
@@ -172,7 +215,7 @@
     <!-- Search + scrape action -->
     <Row>
         <Column lg={10} md={6} sm={4}>
-            <form on:submit|preventDefault={() => runScraper()} style="display: flex; gap: var(--cds-spacing-05); align-items: flex-start;">
+            <form on:submit|preventDefault={() => runScraper()} style="display: flex; gap: var(--cds-spacing-05); align-items: center;">
                 <div style="flex: 1;">
                     <Search
                         placeholder="Enter set name, e.g. pokemon-base-set"
@@ -180,17 +223,34 @@
                         disabled={running}
                     />
                 </div>
-                <div style="flex-shrink: 0; padding-top: 1px;">
-                    {#if running}
-                        <InlineLoading description="Scraping..." />
-                    {:else}
-                        <Button
-                            type="submit"
-                            disabled={!toScrape.trim() || status !== "success"}
-                        >Scrape</Button>
-                    {/if}
+                <div class="scrape-action">
+                    <Button
+                        type="submit"
+                        disabled={running || !toScrape.trim() || status !== "success"}
+                    >Scrape</Button>
                 </div>
             </form>
+
+            {#if running}
+                <div class="progress-bar-container" transition:slide={{ duration: 200 }}>
+                    <div class="progress-track">
+                        {#if scrapeProgress.cards > 0 && !scrapeProgress.done}
+                            <div class="progress-fill progress-fill--pulse"></div>
+                        {:else if scrapeProgress.done}
+                            <div class="progress-fill" style="width: 100%;"></div>
+                        {:else}
+                            <div class="progress-fill progress-fill--indeterminate"></div>
+                        {/if}
+                    </div>
+                    <span class="progress-label">
+                        {#if scrapeProgress.cards > 0}
+                            Page {scrapeProgress.page} · {scrapeProgress.cards} cards scraped{scrapeProgress.done ? " ✓" : "..."}
+                        {:else}
+                            Connecting to PriceCharting...
+                        {/if}
+                    </span>
+                </div>
+            {/if}
         </Column>
     </Row>
 
@@ -246,9 +306,58 @@
         font-weight: 400;
     }
 
+    .scrape-action {
+        flex-shrink: 0;
+    }
+
+    /* ── Progress bar ── */
+    .progress-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+    }
+    .progress-track {
+        flex: 1;
+        height: 4px;
+        background: var(--cds-border-subtle, #e0e0e0);
+        border-radius: 2px;
+        overflow: hidden;
+        position: relative;
+    }
+    .progress-fill {
+        height: 100%;
+        background: #0f62fe;
+        border-radius: 2px;
+        transition: width 0.3s ease;
+    }
+    .progress-fill--indeterminate {
+        width: 30%;
+        animation: indeterminate 1.4s ease-in-out infinite;
+    }
+    .progress-fill--pulse {
+        width: 100%;
+        animation: pulse-fill 1.8s ease-in-out infinite;
+    }
+    @keyframes indeterminate {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(430%); }
+    }
+    @keyframes pulse-fill {
+        0%, 100% { opacity: 0.45; }
+        50%      { opacity: 1; }
+    }
+    .progress-label {
+        font-size: 0.75rem;
+        color: var(--cds-text-secondary, #525252);
+        white-space: nowrap;
+        min-width: 10rem;
+    }
+
+    /* ── Status bar ── */
     .status-dropdown {
         position: fixed;
-        top: 3rem; /* sits directly below the Carbon Header */
+        top: 3rem;
         left: 0;
         right: 0;
         z-index: 8000;

@@ -1,4 +1,3 @@
-import { json } from '@sveltejs/kit';
 import csvjson from 'csvjson';
 
 class PokemonCard {
@@ -102,41 +101,67 @@ async function fetchWithRetry(fetchUrl: string): Promise<any> {
     throw new Error(`Failed after ${MAX_RETRIES + 1} attempts`);
 }
 
-export async function GET({ url }) {
+export function GET({ url }: { url: URL }) {
     const paramInput = url.searchParams.get('set-name');
-    const setName = paramInput ? paramInput : "pokemon-base-set";
-    const scrapedCards: PokemonCard[] = [];
-    let cursor: string | undefined = "0";
+    const setName: string = paramInput ? paramInput : "pokemon-base-set";
 
-    console.log(`Scraping: https://www.pricecharting.com/console/${setName}`)
-    while(cursor !== undefined)
-    {
-        const newURL: string = `https://www.pricecharting.com/console/${encodeURIComponent(setName)}?sort=model-number&cursor=${cursor}&format=json`;
-        try {
-            const data: any = await fetchWithRetry(newURL);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        async start(controller) {
+            const scrapedCards: PokemonCard[] = [];
+            let cursor: string | undefined = "0";
+            let page = 0;
 
-            if (data.products && Array.isArray(data.products)) {
-                data.products.forEach((product: any) => {
-                    scrapedCards.push(jsonToPokemonCard(product));
-                });
+            function send(event: string, data: any) {
+                controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
             }
 
-            cursor = data.cursor != null ? String(data.cursor) : undefined;
+            console.log(`Scraping: https://www.pricecharting.com/console/${setName}`);
 
-            if (cursor !== undefined) {
-                await delay(PAGE_DELAY_MS);
+            while (cursor !== undefined) {
+                const newURL: string = `https://www.pricecharting.com/console/${encodeURIComponent(setName)}?sort=model-number&cursor=${cursor}&format=json`;
+                try {
+                    const data: any = await fetchWithRetry(newURL);
+
+                    if (data.products && Array.isArray(data.products)) {
+                        data.products.forEach((product: any) => {
+                            scrapedCards.push(jsonToPokemonCard(product));
+                        });
+                    }
+
+                    cursor = data.cursor != null ? String(data.cursor) : undefined;
+                    page++;
+
+                    const isLastPage = cursor === undefined;
+                    send('progress', { page, cards: scrapedCards.length, done: isLastPage });
+
+                    if (cursor !== undefined) {
+                        await delay(PAGE_DELAY_MS);
+                    }
+                } catch (error) {
+                    console.error(`Scrape error for ${setName} at cursor=${cursor}:`, error);
+                    if (scrapedCards.length > 0) {
+                        console.log(`Returning ${scrapedCards.length} cards scraped before error`);
+                        break;
+                    }
+                    send('error', { message: `Failed to scrape ${setName}` });
+                    controller.close();
+                    return;
+                }
             }
-        } catch (error) {
-            console.error(`Scrape error for ${setName} at cursor=${cursor}:`, error);
-            if (scrapedCards.length > 0) {
-                console.log(`Returning ${scrapedCards.length} cards scraped before error`);
-                break;
-            }
-            return json("Error");
+
+            console.log(`Done: ${scrapedCards.length} cards scraped from ${setName}`);
+            const csvData: string = csvjson.toCSV(JSON.stringify(scrapedCards), { headers: 'key' });
+            send('complete', { csv: csvData, cards: scrapedCards.length });
+            controller.close();
         }
-    }
+    });
 
-    console.log(`Done: ${scrapedCards.length} cards scraped from ${setName}`)
-    const csvData = csvjson.toCSV(JSON.stringify(scrapedCards), {headers: 'key'});
-    return json(csvData);
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        }
+    });
 }
