@@ -2,16 +2,22 @@
     import { onMount } from "svelte";
     import {
         Button,
-        TextInput,
+        Search,
+        Grid,
+        Row,
+        Column,
         Tile,
+        ClickableTile,
         InlineNotification,
         InlineLoading,
         Tag,
+        NotificationQueue,
     } from "carbon-components-svelte";
 
     let running = false;
     let toScrape = "";
     let topSets: string[] = [];
+    let queue: any;
 
     function outputAsDownload(csvText: string) {
         const blob = new Blob([csvText], { type: "text/plain" });
@@ -21,7 +27,6 @@
         a.download = `${toScrape ? toScrape : "pokemon-base-set"}-${new Date().toISOString()}.csv`;
         document.body.appendChild(a);
         a.click();
-        console.log("Dumped CSV");
         setTimeout(() => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
@@ -29,20 +34,37 @@
     }
 
     async function runScraper() {
-        if (!running) {
+        if (!running && toScrape.trim()) {
             running = true;
-            await fetch(`${window.location.origin}/scrape?set-name=${toScrape}`, {
-                method: "GET",
-                headers: {
-                    "Content-Type": "text/plain",
-                    Connection: "keep-alive",
-                },
-            })
-                .then((response) => response.json())
-                .then((data) => {
-                    outputAsDownload(data);
-                    running = false;
+            try {
+                const response = await fetch(
+                    `${window.location.origin}/scrape?set-name=${encodeURIComponent(toScrape.trim())}`,
+                    {
+                        method: "GET",
+                        headers: {
+                            "Content-Type": "text/plain",
+                            Connection: "keep-alive",
+                        },
+                    }
+                );
+                const data = await response.json();
+                outputAsDownload(data);
+                queue?.add({
+                    kind: "success",
+                    title: "Download ready",
+                    subtitle: `${toScrape} scraped successfully. CSV downloaded.`,
+                    timeout: 5000,
                 });
+            } catch (err) {
+                queue?.add({
+                    kind: "error",
+                    title: "Scrape failed",
+                    subtitle: `Could not scrape "${toScrape}". Check the set name and try again.`,
+                    timeout: 5000,
+                });
+            } finally {
+                running = false;
+            }
         }
     }
 
@@ -54,7 +76,7 @@
         try {
             const response = await fetch(hardcodedUrl);
             status = response.ok ? "success" : "error";
-        } catch (error) {
+        } catch {
             status = "error";
         } finally {
             endPointLoad = false;
@@ -62,23 +84,21 @@
     }
 
     async function getPopularSets() {
-        let setUrl = "https://www.pricecharting.com/consoles-autocomplete/pokemon-cards";
-        await fetch(setUrl, {
-            method: "GET",
-            headers: {
-                "Content-Type": "text/plain",
-                Connection: "keep-alive",
-            },
-        })
-            .then((response) => response.json())
-            .then((data) => {
-                data.forEach((element: any) => {
-                    if (element?.label && element.label != "all" && topSets.length < 20) {
-                        topSets = [...topSets, element.label];
-                    }
-                });
+        const setUrl = "https://www.pricecharting.com/consoles-autocomplete/pokemon-cards";
+        try {
+            const response = await fetch(setUrl, {
+                method: "GET",
+                headers: { "Content-Type": "text/plain", Connection: "keep-alive" },
             });
-        console.log(topSets);
+            const data = await response.json();
+            data.forEach((element: any) => {
+                if (element?.label && element.label !== "all" && topSets.length < 20) {
+                    topSets = [...topSets, element.label];
+                }
+            });
+        } catch {
+            // popular sets are non-critical
+        }
     }
 
     onMount(() => {
@@ -87,102 +107,132 @@
         getPopularSets();
     });
 
-    let showCard = true;
-
-    function closeCard() {
-        showCard = false;
-    }
-
     function scrapeSet(setName: string) {
         toScrape = setName;
         runScraper();
     }
+
+    const exampleSets = [
+        { name: "pokemon-base-set", description: "The original 1999 set" },
+        { name: "pokemon-lost-origin", description: "Sword & Shield era" },
+        { name: "pokemon-evolving-skies", description: "Popular modern set" },
+        { name: "pokemon-celestial-storm", description: "Sun & Moon era" },
+    ];
 </script>
 
-<main style="padding: 2rem; max-width: 960px; margin: 0 auto;">
-    <h1 style="margin-bottom: 0.25rem;">Scrape</h1>
-    <p style="margin-bottom: 1.5rem;">Scrape pricecharting with a given card set.</p>
+<NotificationQueue bind:this={queue} />
 
-    <div style="display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 2rem;">
-        <div style="flex: 1;">
-            <TextInput
-                labelText="Card set name"
-                placeholder="e.g. pokemon-base-set"
-                bind:value={toScrape}
-            />
-        </div>
-        <div>
-            {#if running}
-                <InlineLoading description="Scraping..." />
-            {:else}
-                <Button on:click={() => runScraper()}>Scrape</Button>
-            {/if}
-        </div>
-    </div>
-
-    <h2 style="margin-bottom: 0.75rem;">Example sets to scrape (Click to scrape)</h2>
-    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem;">
-        <Tag
-            interactive
-            type="blue"
-            on:click={() => scrapeSet("pokemon-base-set")}
-        >pokemon-base-set</Tag>
-        <Tag
-            interactive
-            type="blue"
-            on:click={() => scrapeSet("pokemon-lost-origin")}
-        >pokemon-lost-origin</Tag>
-        <Tag
-            interactive
-            type="blue"
-            on:click={() => scrapeSet("pokemon-evolving-skies")}
-        >pokemon-evolving-skies</Tag>
-        <Tag
-            interactive
-            type="blue"
-            on:click={() => scrapeSet("pokemon-celestial-storm")}
-        >pokemon-celestial-storm</Tag>
-    </div>
-
-    <h2 style="margin-bottom: 0.75rem;">Popular sets (Untested!)</h2>
-    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 2rem;">
-        {#each topSets as set}
-            <Tag
-                interactive
-                type="teal"
-                on:click={() => scrapeSet(set.replaceAll(" ", "-"))}
-            >{set.replaceAll(" ", "-")}</Tag>
-        {/each}
-    </div>
-
-    {#if showCard}
-        <div style="position: fixed; bottom: 1rem; right: 1rem; width: 400px;">
-            <Tile>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                    <h4>Backend Endpoint Status Display</h4>
-                    <Button kind="ghost" size="small" on:click={closeCard}>Close</Button>
+<Grid>
+    <!-- Status banner -->
+    <Row>
+        <Column>
+            {#if endPointLoad}
+                <div class="status-bar status-bar--loading">
+                    <InlineLoading description="Connecting to backend..." />
                 </div>
-                <p style="font-size: 0.875rem; color: var(--cds-text-secondary, #525252); margin-bottom: 0.75rem;">
-                    Checking status for: {hardcodedUrl}
+            {:else if status === "success"}
+                <InlineNotification
+                    kind="success"
+                    title="Backend connected"
+                    subtitle="Ready to scrape — {hardcodedUrl}"
+                    hideCloseButton
+                />
+            {:else}
+                <InlineNotification
+                    kind="error"
+                    title="Backend unavailable"
+                    subtitle="Could not reach {hardcodedUrl}"
+                    hideCloseButton
+                />
+            {/if}
+        </Column>
+    </Row>
+
+    <!-- Hero section -->
+    <Row>
+        <Column lg={10} md={6} sm={4}>
+            <h1>Scrape Pokémon Card Prices</h1>
+            <p style="margin-top: var(--cds-spacing-03); margin-bottom: var(--cds-spacing-06); color: var(--cds-text-secondary, #525252); max-width: 600px;">
+                Enter a PriceCharting card set name below to scrape current market
+                prices. Results are downloaded as a CSV file.
+            </p>
+        </Column>
+    </Row>
+
+    <!-- Search + scrape action -->
+    <Row>
+        <Column lg={10} md={6} sm={4}>
+            <form on:submit|preventDefault={() => runScraper()} style="display: flex; gap: var(--cds-spacing-05); align-items: flex-start;">
+                <div style="flex: 1;">
+                    <Search
+                        placeholder="Enter set name, e.g. pokemon-base-set"
+                        bind:value={toScrape}
+                        disabled={running}
+                    />
+                </div>
+                <div style="flex-shrink: 0; padding-top: 1px;">
+                    {#if running}
+                        <InlineLoading description="Scraping..." />
+                    {:else}
+                        <Button
+                            type="submit"
+                            disabled={!toScrape.trim() || status !== "success"}
+                        >Scrape</Button>
+                    {/if}
+                </div>
+            </form>
+        </Column>
+    </Row>
+
+    <!-- Example sets -->
+    <Row style="margin-top: var(--cds-spacing-08, 2.5rem);">
+        <Column>
+            <h3 class="section-heading">Quick Start Sets</h3>
+            <div class="tile-grid">
+                {#each exampleSets as set}
+                    <ClickableTile
+                        on:click={(e) => { e.preventDefault(); scrapeSet(set.name); }}
+                    >
+                        <strong>{set.name}</strong>
+                        <p style="margin-top: var(--cds-spacing-02); font-size: 0.875rem; color: var(--cds-text-secondary, #525252);">
+                            {set.description}
+                        </p>
+                    </ClickableTile>
+                {/each}
+            </div>
+        </Column>
+    </Row>
+
+    <!-- Popular sets -->
+    {#if topSets.length > 0}
+        <Row style="margin-top: var(--cds-spacing-08, 2.5rem);">
+            <Column>
+                <h3 class="section-heading">Popular Sets</h3>
+                <p style="font-size: 0.875rem; color: var(--cds-text-secondary, #525252); margin-bottom: var(--cds-spacing-05);">
+                    Fetched from PriceCharting — click to scrape.
                 </p>
-                {#if endPointLoad}
-                    <InlineLoading description="Checking status..." />
-                {:else if status === "success"}
-                    <InlineNotification
-                        kind="success"
-                        title="Status:"
-                        subtitle="Endpoint is up and running!"
-                        hideCloseButton
-                    />
-                {:else if status === "error"}
-                    <InlineNotification
-                        kind="error"
-                        title="Error:"
-                        subtitle="Failed to connect to the endpoint."
-                        hideCloseButton
-                    />
-                {/if}
-            </Tile>
-        </div>
+                <div class="tag-grid">
+                    {#each topSets as set}
+                        <Tag
+                            interactive
+                            type="teal"
+                            on:click={() => scrapeSet(set.replaceAll(" ", "-"))}
+                        >{set.replaceAll(" ", "-")}</Tag>
+                    {/each}
+                </div>
+            </Column>
+        </Row>
     {/if}
-</main>
+</Grid>
+
+<style>
+    h1 {
+        font-size: 2.625rem;
+        font-weight: 300;
+        line-height: 1.2;
+    }
+    h3 {
+        font-size: 1.25rem;
+        font-weight: 400;
+    }
+</style>
