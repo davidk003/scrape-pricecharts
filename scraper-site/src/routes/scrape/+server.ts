@@ -1,162 +1,53 @@
-// const csvjson = require('csvjson');
 import { json } from '@sveltejs/kit';
-import csvjson from 'csvjson';
-let running = false;
-let setName = "";
-let csvData:string = "";
 
-class PokemonCard {
-    name: string;
-    fullName: string;
-    id: number;
-    icon: string;
-    cardSet: string;
-    prices: string;
-    trait: string;
-    cardNumber: string;
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1500;
 
-    constructor(name: string, fullName: string, id: number, icon: string, cardSet: string, prices: string, trait: string, cardNumber: string) {
-        this.name = name;
-        this.fullName = fullName;
-        this.id = id;
-        this.icon = icon;
-        this.cardSet = cardSet;
-        this.prices = prices;
-        this.trait = trait;
-        this.cardNumber = cardNumber;
-    }
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function jsonToPokemonCard(priceChartingProduct: any): PokemonCard
-{
-    let prices:string | Object = {"Ungraded": priceChartingProduct.price1, "PSA 10": priceChartingProduct.price2, "PSA 9": priceChartingProduct.price3};
-    prices = JSON.stringify(prices); //Maybe comment out not for csv?
-    let attributeSplit = priceChartingProduct.productName.split(/[\[\]]/, 3)
-    let name: string = "NULL";
-    let trait: string = "NULL";
-    let num: string = "NULL";
-    if(attributeSplit.length === 3)
-    {
-        // console.log(attributeSplit)
-        name = attributeSplit[0]
-        num = attributeSplit[2];
-        trait = attributeSplit[1];
-    }
-    else if(attributeSplit.length === 1) //No trait
-    {
-        let attributeSplit = priceChartingProduct.productName.split(" ", 2)
-        name = attributeSplit[0]
-        num = attributeSplit[1];
-    }
-    else //No num or trait
-    {
-        name = priceChartingProduct.productName;
-    }
-    return new PokemonCard(
-        name,
-        priceChartingProduct.productName,
-        priceChartingProduct.id,
-        priceChartingProduct.imageUri,
-        priceChartingProduct.consoleUri,
-        prices as string,
-        trait,
-        num as string
-    );
-}
-const scraped:any = [];
-const scrapedCards: PokemonCard[] = [];
-async function recurseCursor(cursor=0)
-{
-    running = true;
-    let newURL = `https://www.pricecharting.com/console/${setName}?sort=model-number&cursor=${cursor}&format=json`;
-    console.log(cursor);
-    await fetch(newURL)
-      .then(res => {console.log(res);return res.json()})
-      .then(data => {
-          try{
-            console.log(data.cursor);
-            if(data.cursor)
-            {
-                scraped.push(data);
-                data.products.forEach((product: any) => {
-                    scrapedCards.push(jsonToPokemonCard(product));
-                });
-                recurseCursor(data.cursor);
-            }
-            else
-            {
-                // console.log(scrapedCards);
-                // console.log(scraped[0])
-                scrapedCards.forEach(card => {if(card.name === card.fullName){console.log(`LIKELY ERROR CARD: ${card.name}`)}});
-                csvData = csvjson.toCSV(JSON.stringify(scrapedCards), {headers: 'key'});
+export async function GET({ url }: { url: URL }) {
+    const setName: string = url.searchParams.get('set-name') || 'pokemon-base-set';
+    const cursor: string = url.searchParams.get('cursor') || '0';
 
-                running = false;
-            }
-          }
-          catch{
-            console.log("Error")
-            running = false;
-          }
-      })
-      .catch(error => {
-        console.error('Error:', error);
-        running = false;
-    });
-    console.log(`Recurse cursor:${cursor} done`)
-}
+    const target: string = `https://www.pricecharting.com/console/${encodeURIComponent(setName)}?sort=model-number&cursor=${cursor}&format=json`;
 
-async function runScraperScript() {
-    if(!running)
-    {
-        running = true;
-        setName =  (document.getElementById("setName") as HTMLInputElement)?.value
-        if(setName)
-        {
-            await recurseCursor();
-        }
-        running = false;
-    }
-    
-}
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const res: Response = await fetch(target);
 
-export async function GET({ url }) {
-    let paramInput = url.searchParams.get('set-name');
-    setName = paramInput ? paramInput : "pokemon-base-set";
-    let cursor: number | undefined = 0;
-    // await fetch(newURL).then(res => res.json()).then(data => {console.log(data)});
-    // await recurseCursor();
-    // while(running){
-    //     console.log(scrapedCards[scrapedCards.length - 1])
-    // }
-    console.log(`URL on: https://www.pricecharting.com/console/${setName}?sort=model-number&cursor=${cursor}&format=json`)
-    while(cursor !== undefined)
-    {
-        let newURL = `https://www.pricecharting.com/console/${setName}?sort=model-number&cursor=${cursor}&format=json`;
-        await fetch(newURL)
-        .then(res => res.json())
-        .then(data => {
-            try{
-                cursor = data?.cursor;
-                console.log(data.cursor);
-                if(data.cursor)
-                {
-                    scraped.push(data);
-                    data.products.forEach((product: any) => {
-                        scrapedCards.push(jsonToPokemonCard(product));
-                    });
+        if (res.ok) {
+            const contentType: string = res.headers.get('content-type') || '';
+            if (!contentType.includes('json')) {
+                const body: string = await res.text();
+                if (body.trimStart().startsWith('<')) {
+                    if (attempt < MAX_RETRIES) {
+                        const backoff: number = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+                        console.log(`Got HTML instead of JSON, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+                        await delay(backoff);
+                        continue;
+                    }
+                    return json({ error: 'Rate limited by PriceCharting' }, { status: 429 });
                 }
+                return new Response(body, {
+                    headers: { 'Content-Type': 'application/json' }
+                });
             }
-            catch{
-                console.log("Error")
-                cursor = undefined;
-                return json("Error")
+            const data: any = await res.json();
+            return json(data);
+        }
+
+        if (res.status === 429 || res.status >= 500) {
+            if (attempt < MAX_RETRIES) {
+                const backoff: number = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+                console.log(`HTTP ${res.status}, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+                await delay(backoff);
+                continue;
             }
-        })
-      .catch(error => {console.error('Error:', error);return json("Error");});
+        }
+
+        return json({ error: `PriceCharting returned HTTP ${res.status}` }, { status: res.status });
     }
-    scrapedCards.forEach(card => {if(card.name === card.fullName){console.log(`LIKELY ERROR CARD: ${card.name}`)}});
-    csvData = csvjson.toCSV(JSON.stringify(scrapedCards), {headers: 'key'});
-    console.log("Done")
-    return json(csvData)
-	// return json(paramInput ? paramInput : "No set name provided")
+
+    return json({ error: 'Failed after retries' }, { status: 502 });
 }

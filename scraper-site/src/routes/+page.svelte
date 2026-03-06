@@ -14,11 +14,70 @@
         Tag,
         NotificationQueue,
     } from "carbon-components-svelte";
-
     let running = false;
     let toScrape = "";
     let topSets: string[] = [];
     let queue: any;
+
+    let scrapeProgress = { page: 0, cards: 0, done: false, retrying: false };
+
+    interface PokemonCard {
+        name: string;
+        fullName: string;
+        id: number;
+        icon: string;
+        cardSet: string;
+        prices: string;
+        trait: string;
+        cardNumber: string;
+    }
+
+    function parsePokemonCard(product: any): PokemonCard {
+        let prices: string = JSON.stringify({
+            Ungraded: product.price1,
+            "PSA 10": product.price2,
+            "PSA 9": product.price3,
+        });
+        let attributeSplit = product.productName.split(/[\[\]]/, 3);
+        let name = "NULL";
+        let trait = "NULL";
+        let num = "NULL";
+        if (attributeSplit.length === 3) {
+            name = attributeSplit[0];
+            num = attributeSplit[2];
+            trait = attributeSplit[1];
+        } else if (attributeSplit.length === 1) {
+            let parts = product.productName.split(" ", 2);
+            name = parts[0];
+            num = parts[1];
+        } else {
+            name = product.productName;
+        }
+        return {
+            name,
+            fullName: product.productName,
+            id: product.id,
+            icon: product.imageUri,
+            cardSet: product.consoleUri,
+            prices,
+            trait,
+            cardNumber: num,
+        };
+    }
+
+    function toCsv(cards: PokemonCard[]): string {
+        if (cards.length === 0) return "";
+        const keys: (keyof PokemonCard)[] = ["name", "fullName", "id", "icon", "cardSet", "prices", "trait", "cardNumber"];
+        const escape = (v: any) => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') || s.includes("\n")
+                ? '"' + s.replace(/"/g, '""') + '"'
+                : s;
+        };
+        const header = keys.join(",");
+        const rows = cards.map(c => keys.map(k => escape(c[k])).join(","));
+        return header + "\n" + rows.join("\n");
+    }
 
     function outputAsDownload(csvText: string) {
         const blob = new Blob([csvText], { type: "text/plain" });
@@ -34,35 +93,108 @@
         }, 0);
     }
 
+    function delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    const CLIENT_MAX_RETRIES = 5;
+    const CLIENT_BACKOFF_MS = 1500;
+    const PAGE_DELAY_MS = 200;
+
     async function runScraper() {
         if (!running && toScrape.trim()) {
             running = true;
+            scrapeProgress = { page: 0, cards: 0, done: false, retrying: false };
+            const setName = toScrape.trim();
+            const scrapedCards: PokemonCard[] = [];
+            let cursor: string | undefined = "0";
+            let page = 0;
+
             try {
-                const response = await fetch(
-                    `${window.location.origin}/scrape?set-name=${encodeURIComponent(toScrape.trim())}`,
-                    {
-                        method: "GET",
-                        headers: {
-                            "Content-Type": "text/plain",
-                            Connection: "keep-alive",
-                        },
+                while (cursor !== undefined) {
+                    let data: any = null;
+                    let success = false;
+
+                    for (let attempt = 0; attempt <= CLIENT_MAX_RETRIES; attempt++) {
+                        const response = await fetch(
+                            `/scrape?set-name=${encodeURIComponent(setName)}&cursor=${cursor}`
+                        );
+
+                        if (response.ok) {
+                            data = await response.json();
+                            if (data.error) {
+                                if (attempt < CLIENT_MAX_RETRIES) {
+                                    scrapeProgress = { ...scrapeProgress, retrying: true };
+                                    const backoff = CLIENT_BACKOFF_MS * Math.pow(2, attempt);
+                                    await delay(backoff);
+                                    continue;
+                                }
+                                throw new Error(data.error);
+                            }
+                            success = true;
+                            scrapeProgress = { ...scrapeProgress, retrying: false };
+                            break;
+                        }
+
+                        if (response.status === 429 && attempt < CLIENT_MAX_RETRIES) {
+                            scrapeProgress = { ...scrapeProgress, retrying: true };
+                            const backoff = CLIENT_BACKOFF_MS * Math.pow(2, attempt);
+                            await delay(backoff);
+                            continue;
+                        }
+
+                        throw new Error(`Server returned HTTP ${response.status}`);
                     }
-                );
-                const data = await response.json();
-                outputAsDownload(data);
+
+                    if (!success || !data) {
+                        throw new Error("Failed after retries");
+                    }
+
+                    if (data.products && Array.isArray(data.products)) {
+                        for (const product of data.products) {
+                            scrapedCards.push(parsePokemonCard(product));
+                        }
+                    }
+
+                    cursor = data.cursor != null ? String(data.cursor) : undefined;
+                    page++;
+
+                    scrapeProgress = {
+                        page,
+                        cards: scrapedCards.length,
+                        done: cursor === undefined,
+                        retrying: false,
+                    };
+
+                    if (cursor !== undefined) {
+                        await delay(PAGE_DELAY_MS);
+                    }
+                }
+
+                outputAsDownload(toCsv(scrapedCards));
                 queue?.add({
                     kind: "success",
                     title: "Download ready",
-                    subtitle: `${toScrape} scraped successfully. CSV downloaded.`,
+                    subtitle: `${setName} scraped successfully — ${scrapedCards.length} cards. CSV downloaded.`,
                     timeout: 5000,
                 });
-            } catch (err) {
-                queue?.add({
-                    kind: "error",
-                    title: "Scrape failed",
-                    subtitle: `Could not scrape "${toScrape}". Check the set name and try again.`,
-                    timeout: 5000,
-                });
+            } catch (err: any) {
+                if (scrapedCards.length > 0) {
+                    outputAsDownload(toCsv(scrapedCards));
+                    queue?.add({
+                        kind: "warning",
+                        title: "Partial download",
+                        subtitle: `Got ${scrapedCards.length} cards before error. Partial CSV downloaded.`,
+                        timeout: 8000,
+                    });
+                } else {
+                    queue?.add({
+                        kind: "error",
+                        title: "Scrape failed",
+                        subtitle: `Could not scrape "${setName}". ${err?.message || "Check the set name and try again."}`,
+                        timeout: 5000,
+                    });
+                }
             } finally {
                 running = false;
             }
@@ -172,7 +304,7 @@
     <!-- Search + scrape action -->
     <Row>
         <Column lg={10} md={6} sm={4}>
-            <form on:submit|preventDefault={() => runScraper()} style="display: flex; gap: var(--cds-spacing-05); align-items: flex-start;">
+            <form on:submit|preventDefault={() => runScraper()} style="display: flex; gap: var(--cds-spacing-05); align-items: center;">
                 <div style="flex: 1;">
                     <Search
                         placeholder="Enter set name, e.g. pokemon-base-set"
@@ -180,17 +312,36 @@
                         disabled={running}
                     />
                 </div>
-                <div style="flex-shrink: 0; padding-top: 1px;">
-                    {#if running}
-                        <InlineLoading description="Scraping..." />
-                    {:else}
-                        <Button
-                            type="submit"
-                            disabled={!toScrape.trim() || status !== "success"}
-                        >Scrape</Button>
-                    {/if}
+                <div class="scrape-action">
+                    <Button
+                        type="submit"
+                        disabled={running || !toScrape.trim() || status !== "success"}
+                    >Scrape</Button>
                 </div>
             </form>
+
+            {#if running}
+                <div class="progress-bar-container" transition:slide={{ duration: 200 }}>
+                    <div class="progress-track">
+                        {#if scrapeProgress.cards > 0 && !scrapeProgress.done}
+                            <div class="progress-fill progress-fill--pulse"></div>
+                        {:else if scrapeProgress.done}
+                            <div class="progress-fill" style="width: 100%;"></div>
+                        {:else}
+                            <div class="progress-fill progress-fill--indeterminate"></div>
+                        {/if}
+                    </div>
+                    <span class="progress-label">
+                        {#if scrapeProgress.retrying}
+                            Page {scrapeProgress.page} · {scrapeProgress.cards} cards · Rate limited, retrying...
+                        {:else if scrapeProgress.cards > 0}
+                            Page {scrapeProgress.page} · {scrapeProgress.cards} cards scraped{scrapeProgress.done ? " ✓" : "..."}
+                        {:else}
+                            Connecting to PriceCharting...
+                        {/if}
+                    </span>
+                </div>
+            {/if}
         </Column>
     </Row>
 
@@ -246,9 +397,58 @@
         font-weight: 400;
     }
 
+    .scrape-action {
+        flex-shrink: 0;
+    }
+
+    /* ── Progress bar ── */
+    .progress-bar-container {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+    }
+    .progress-track {
+        flex: 1;
+        height: 4px;
+        background: var(--cds-border-subtle, #e0e0e0);
+        border-radius: 2px;
+        overflow: hidden;
+        position: relative;
+    }
+    .progress-fill {
+        height: 100%;
+        background: #0f62fe;
+        border-radius: 2px;
+        transition: width 0.3s ease;
+    }
+    .progress-fill--indeterminate {
+        width: 30%;
+        animation: indeterminate 1.4s ease-in-out infinite;
+    }
+    .progress-fill--pulse {
+        width: 100%;
+        animation: pulse-fill 1.8s ease-in-out infinite;
+    }
+    @keyframes indeterminate {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(430%); }
+    }
+    @keyframes pulse-fill {
+        0%, 100% { opacity: 0.45; }
+        50%      { opacity: 1; }
+    }
+    .progress-label {
+        font-size: 0.75rem;
+        color: var(--cds-text-secondary, #525252);
+        white-space: nowrap;
+        min-width: 10rem;
+    }
+
+    /* ── Status bar ── */
     .status-dropdown {
         position: fixed;
-        top: 3rem; /* sits directly below the Carbon Header */
+        top: 3rem;
         left: 0;
         right: 0;
         z-index: 8000;
