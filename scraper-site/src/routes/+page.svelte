@@ -20,7 +20,7 @@
     let topSets: string[] = [];
     let queue: any;
 
-    let scrapeProgress = { page: 0, cards: 0, done: false };
+    let scrapeProgress = { page: 0, cards: 0, done: false, retrying: false };
 
     function outputAsDownload(csvText: string) {
         const blob = new Blob([csvText], { type: "text/plain" });
@@ -39,7 +39,7 @@
     async function runScraper() {
         if (!running && toScrape.trim()) {
             running = true;
-            scrapeProgress = { page: 0, cards: 0, done: false };
+            scrapeProgress = { page: 0, cards: 0, done: false, retrying: false };
             try {
                 const response = await fetch(
                     `${window.location.origin}/scrape?set-name=${encodeURIComponent(toScrape.trim())}`,
@@ -77,10 +77,14 @@
                         const parsed = JSON.parse(eventData);
 
                         if (eventType === "progress") {
-                            scrapeProgress = { page: parsed.page, cards: parsed.cards, done: parsed.done };
+                            scrapeProgress = { page: parsed.page, cards: parsed.cards, done: parsed.done, retrying: false };
+                        } else if (eventType === "retry") {
+                            scrapeProgress = { ...scrapeProgress, retrying: true };
+                        } else if (eventType === "heartbeat") {
+                            scrapeProgress = { ...scrapeProgress, retrying: parsed.retrying };
                         } else if (eventType === "complete") {
                             csvData = parsed.csv;
-                            scrapeProgress = { page: scrapeProgress.page, cards: parsed.cards, done: true };
+                            scrapeProgress = { page: scrapeProgress.page, cards: parsed.cards, done: true, retrying: false };
                             gotComplete = true;
                         } else if (eventType === "error") {
                             throw new Error(parsed.message);
@@ -243,7 +247,9 @@
                         {/if}
                     </div>
                     <span class="progress-label">
-                        {#if scrapeProgress.cards > 0}
+                        {#if scrapeProgress.retrying}
+                            Page {scrapeProgress.page} · {scrapeProgress.cards} cards · Rate limited, retrying...
+                        {:else if scrapeProgress.cards > 0}
                             Page {scrapeProgress.page} · {scrapeProgress.cards} cards scraped{scrapeProgress.done ? " ✓" : "..."}
                         {:else}
                             Connecting to PriceCharting...

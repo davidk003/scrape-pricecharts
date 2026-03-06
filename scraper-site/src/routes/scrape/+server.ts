@@ -58,15 +58,30 @@ function jsonToPokemonCard(priceChartingProduct: any): PokemonCard
     );
 }
 
-const PAGE_DELAY_MS = 250;
-const MAX_RETRIES = 4;
-const INITIAL_BACKOFF_MS = 2000;
+const PAGE_DELAY_MS = 200;
+const MAX_RETRIES = 5;
+const INITIAL_BACKOFF_MS = 1500;
+const HEARTBEAT_INTERVAL_MS = 2000;
+
+type SendFn = (event: string, data: any) => void;
 
 function delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchWithRetry(fetchUrl: string): Promise<any> {
+async function delayWithHeartbeats(ms: number, send: SendFn, cards: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+        const remaining: number = ms - (Date.now() - start);
+        const wait: number = Math.min(HEARTBEAT_INTERVAL_MS, remaining);
+        await delay(wait);
+        if (Date.now() - start < ms) {
+            send('heartbeat', { cards, retrying: true, waitMs: ms, elapsed: Date.now() - start });
+        }
+    }
+}
+
+async function fetchWithRetry(fetchUrl: string, send: SendFn, cardsSoFar: number): Promise<any> {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         const res: Response = await fetch(fetchUrl);
 
@@ -82,17 +97,11 @@ async function fetchWithRetry(fetchUrl: string): Promise<any> {
             return await res.json();
         }
 
-        if (res.status === 429 && attempt < MAX_RETRIES) {
-            const backoff: number = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
-            console.log(`Rate limited (429), retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-            await delay(backoff);
-            continue;
-        }
-
-        if (res.status >= 400 && attempt < MAX_RETRIES) {
+        if (attempt < MAX_RETRIES) {
             const backoff: number = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
             console.log(`HTTP ${res.status}, retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-            await delay(backoff);
+            send('retry', { attempt: attempt + 1, maxRetries: MAX_RETRIES, status: res.status, cards: cardsSoFar });
+            await delayWithHeartbeats(backoff, send, cardsSoFar);
             continue;
         }
 
@@ -121,7 +130,7 @@ export function GET({ url }: { url: URL }) {
             while (cursor !== undefined) {
                 const newURL: string = `https://www.pricecharting.com/console/${encodeURIComponent(setName)}?sort=model-number&cursor=${cursor}&format=json`;
                 try {
-                    const data: any = await fetchWithRetry(newURL);
+                    const data: any = await fetchWithRetry(newURL, send, scrapedCards.length);
 
                     if (data.products && Array.isArray(data.products)) {
                         data.products.forEach((product: any) => {
