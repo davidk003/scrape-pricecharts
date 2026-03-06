@@ -14,13 +14,70 @@
         Tag,
         NotificationQueue,
     } from "carbon-components-svelte";
-
     let running = false;
     let toScrape = "";
     let topSets: string[] = [];
     let queue: any;
 
     let scrapeProgress = { page: 0, cards: 0, done: false, retrying: false };
+
+    interface PokemonCard {
+        name: string;
+        fullName: string;
+        id: number;
+        icon: string;
+        cardSet: string;
+        prices: string;
+        trait: string;
+        cardNumber: string;
+    }
+
+    function parsePokemonCard(product: any): PokemonCard {
+        let prices: string = JSON.stringify({
+            Ungraded: product.price1,
+            "PSA 10": product.price2,
+            "PSA 9": product.price3,
+        });
+        let attributeSplit = product.productName.split(/[\[\]]/, 3);
+        let name = "NULL";
+        let trait = "NULL";
+        let num = "NULL";
+        if (attributeSplit.length === 3) {
+            name = attributeSplit[0];
+            num = attributeSplit[2];
+            trait = attributeSplit[1];
+        } else if (attributeSplit.length === 1) {
+            let parts = product.productName.split(" ", 2);
+            name = parts[0];
+            num = parts[1];
+        } else {
+            name = product.productName;
+        }
+        return {
+            name,
+            fullName: product.productName,
+            id: product.id,
+            icon: product.imageUri,
+            cardSet: product.consoleUri,
+            prices,
+            trait,
+            cardNumber: num,
+        };
+    }
+
+    function toCsv(cards: PokemonCard[]): string {
+        if (cards.length === 0) return "";
+        const keys: (keyof PokemonCard)[] = ["name", "fullName", "id", "icon", "cardSet", "prices", "trait", "cardNumber"];
+        const escape = (v: any) => {
+            const s = String(v ?? "");
+            return s.includes(",") || s.includes('"') || s.includes("\n")
+                ? '"' + s.replace(/"/g, '""') + '"'
+                : s;
+        };
+        const header = keys.join(",");
+        const rows = cards.map(c => keys.map(k => escape(c[k])).join(","));
+        return header + "\n" + rows.join("\n");
+    }
 
     function outputAsDownload(csvText: string) {
         const blob = new Blob([csvText], { type: "text/plain" });
@@ -36,80 +93,108 @@
         }, 0);
     }
 
+    function delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    const CLIENT_MAX_RETRIES = 5;
+    const CLIENT_BACKOFF_MS = 1500;
+    const PAGE_DELAY_MS = 200;
+
     async function runScraper() {
         if (!running && toScrape.trim()) {
             running = true;
             scrapeProgress = { page: 0, cards: 0, done: false, retrying: false };
+            const setName = toScrape.trim();
+            const scrapedCards: PokemonCard[] = [];
+            let cursor: string | undefined = "0";
+            let page = 0;
+
             try {
-                const response = await fetch(
-                    `${window.location.origin}/scrape?set-name=${encodeURIComponent(toScrape.trim())}`,
-                );
+                while (cursor !== undefined) {
+                    let data: any = null;
+                    let success = false;
 
-                if (!response.body) {
-                    throw new Error("No response body");
-                }
+                    for (let attempt = 0; attempt <= CLIENT_MAX_RETRIES; attempt++) {
+                        const response = await fetch(
+                            `/scrape?set-name=${encodeURIComponent(setName)}&cursor=${cursor}`
+                        );
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
-                let csvData = "";
-                let gotComplete = false;
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-
-                    const parts = buffer.split("\n\n");
-                    buffer = parts.pop() || "";
-
-                    for (const part of parts) {
-                        const lines = part.split("\n");
-                        let eventType = "";
-                        let eventData = "";
-                        for (const line of lines) {
-                            if (line.startsWith("event: ")) eventType = line.slice(7);
-                            else if (line.startsWith("data: ")) eventData = line.slice(6);
+                        if (response.ok) {
+                            data = await response.json();
+                            if (data.error) {
+                                if (attempt < CLIENT_MAX_RETRIES) {
+                                    scrapeProgress = { ...scrapeProgress, retrying: true };
+                                    const backoff = CLIENT_BACKOFF_MS * Math.pow(2, attempt);
+                                    await delay(backoff);
+                                    continue;
+                                }
+                                throw new Error(data.error);
+                            }
+                            success = true;
+                            scrapeProgress = { ...scrapeProgress, retrying: false };
+                            break;
                         }
-                        if (!eventType || !eventData) continue;
 
-                        const parsed = JSON.parse(eventData);
-
-                        if (eventType === "progress") {
-                            scrapeProgress = { page: parsed.page, cards: parsed.cards, done: parsed.done, retrying: false };
-                        } else if (eventType === "retry") {
+                        if (response.status === 429 && attempt < CLIENT_MAX_RETRIES) {
                             scrapeProgress = { ...scrapeProgress, retrying: true };
-                        } else if (eventType === "heartbeat") {
-                            scrapeProgress = { ...scrapeProgress, retrying: parsed.retrying };
-                        } else if (eventType === "complete") {
-                            csvData = parsed.csv;
-                            scrapeProgress = { page: scrapeProgress.page, cards: parsed.cards, done: true, retrying: false };
-                            gotComplete = true;
-                        } else if (eventType === "error") {
-                            throw new Error(parsed.message);
+                            const backoff = CLIENT_BACKOFF_MS * Math.pow(2, attempt);
+                            await delay(backoff);
+                            continue;
                         }
+
+                        throw new Error(`Server returned HTTP ${response.status}`);
+                    }
+
+                    if (!success || !data) {
+                        throw new Error("Failed after retries");
+                    }
+
+                    if (data.products && Array.isArray(data.products)) {
+                        for (const product of data.products) {
+                            scrapedCards.push(parsePokemonCard(product));
+                        }
+                    }
+
+                    cursor = data.cursor != null ? String(data.cursor) : undefined;
+                    page++;
+
+                    scrapeProgress = {
+                        page,
+                        cards: scrapedCards.length,
+                        done: cursor === undefined,
+                        retrying: false,
+                    };
+
+                    if (cursor !== undefined) {
+                        await delay(PAGE_DELAY_MS);
                     }
                 }
 
-                if (gotComplete && csvData) {
-                    outputAsDownload(csvData);
-                    queue?.add({
-                        kind: "success",
-                        title: "Download ready",
-                        subtitle: `${toScrape} scraped successfully — ${scrapeProgress.cards} cards. CSV downloaded.`,
-                        timeout: 5000,
-                    });
-                } else {
-                    throw new Error("Stream ended without completion");
-                }
-            } catch (err) {
+                outputAsDownload(toCsv(scrapedCards));
                 queue?.add({
-                    kind: "error",
-                    title: "Scrape failed",
-                    subtitle: `Could not scrape "${toScrape}". Check the set name and try again.`,
+                    kind: "success",
+                    title: "Download ready",
+                    subtitle: `${setName} scraped successfully — ${scrapedCards.length} cards. CSV downloaded.`,
                     timeout: 5000,
                 });
+            } catch (err: any) {
+                if (scrapedCards.length > 0) {
+                    outputAsDownload(toCsv(scrapedCards));
+                    queue?.add({
+                        kind: "warning",
+                        title: "Partial download",
+                        subtitle: `Got ${scrapedCards.length} cards before error. Partial CSV downloaded.`,
+                        timeout: 8000,
+                    });
+                } else {
+                    queue?.add({
+                        kind: "error",
+                        title: "Scrape failed",
+                        subtitle: `Could not scrape "${setName}". ${err?.message || "Check the set name and try again."}`,
+                        timeout: 5000,
+                    });
+                }
             } finally {
                 running = false;
             }
