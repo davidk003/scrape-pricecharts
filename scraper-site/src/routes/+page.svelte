@@ -9,7 +9,6 @@
         Column,
         Tile,
         ClickableTile,
-        InlineNotification,
         InlineLoading,
         Tag,
         NotificationQueue,
@@ -122,20 +121,40 @@
     }
 
     const exampleSets = [
-        { name: "pokemon-base-set", description: "The original 1999 set" },
-        { name: "pokemon-lost-origin", description: "Sword & Shield era" },
-        { name: "pokemon-evolving-skies", description: "Popular modern set" },
-        { name: "pokemon-celestial-storm", description: "Sun & Moon era" },
+        { name: "pokemon-base-set",      description: "The original 1999 set",       era: "Vintage" },
+        { name: "pokemon-evolving-skies", description: "Most popular modern set",     era: "Sword & Shield" },
+        { name: "pokemon-lost-origin",   description: "Recent high-value set",        era: "Sword & Shield" },
+        { name: "pokemon-celestial-storm", description: "Sun & Moon era",             era: "Sun & Moon" },
+        { name: "pokemon-xy-evolutions", description: "Fan-favourite reprint",        era: "XY" },
+    ];
+
+    const steps = [
+        {
+            number: "01",
+            heading: "Enter a set name",
+            desc: "Type the PriceCharting slug for the set you want — e.g. pokemon-base-set or pokemon-evolving-skies.",
+        },
+        {
+            number: "02",
+            heading: "Scrape",
+            desc: "We fetch every card and its current market price live from PriceCharting.com.",
+        },
+        {
+            number: "03",
+            heading: "Download CSV",
+            desc: "Your file downloads automatically. Open it in Excel, Google Sheets, or any data tool.",
+        },
     ];
 </script>
 
 <NotificationQueue bind:this={queue} />
 
+<!-- Status bar -->
 {#if showStatusBar}
     <div class="status-dropdown" transition:slide={{ duration: 300 }}>
         {#if endPointLoad}
             <div class="status-dropdown__inner status-dropdown__inner--loading">
-                <InlineLoading description="Connecting to backend..." />
+                <InlineLoading description="Connecting to backend…" />
             </div>
         {:else if status === "success"}
             <div class="status-dropdown__inner status-dropdown__inner--success">
@@ -157,103 +176,165 @@
     </div>
 {/if}
 
-<Grid>
-    <!-- Hero section -->
-    <Row>
-        <Column lg={10} md={6} sm={4}>
-            <h1>Scrape Pokémon Card Prices</h1>
-            <p style="margin-top: var(--cds-spacing-03); margin-bottom: var(--cds-spacing-06); color: var(--cds-text-secondary, #525252); max-width: 600px;">
-                Enter a PriceCharting card set name below to scrape current market
-                prices. Results are downloaded as a CSV file.
-            </p>
-        </Column>
-    </Row>
-
-    <!-- Search + scrape action -->
-    <Row>
-        <Column lg={10} md={6} sm={4}>
-            <form on:submit|preventDefault={() => runScraper()} style="display: flex; gap: var(--cds-spacing-05); align-items: flex-start;">
-                <div style="flex: 1;">
-                    <Search
-                        placeholder="Enter set name, e.g. pokemon-base-set"
-                        bind:value={toScrape}
-                        disabled={running}
-                    />
-                </div>
-                <div style="flex-shrink: 0; padding-top: 1px;">
-                    {#if running}
-                        <InlineLoading description="Scraping..." />
-                    {:else}
-                        <Button
-                            type="submit"
-                            disabled={!toScrape.trim() || status !== "success"}
-                        >Scrape</Button>
-                    {/if}
-                </div>
-            </form>
-        </Column>
-    </Row>
-
-    <!-- Example sets -->
-    <Row style="margin-top: var(--cds-spacing-08, 2.5rem);">
-        <Column>
-            <h3 class="section-heading">Quick Start Sets</h3>
-            <div class="tile-grid">
-                {#each exampleSets as set}
-                    <ClickableTile
-                        on:click={(e) => { e.preventDefault(); scrapeSet(set.name); }}
-                    >
-                        <strong>{set.name}</strong>
-                        <p style="margin-top: var(--cds-spacing-02); font-size: 0.875rem; color: var(--cds-text-secondary, #525252);">
-                            {set.description}
-                        </p>
-                    </ClickableTile>
-                {/each}
-            </div>
-        </Column>
-    </Row>
-
-    <!-- Popular sets -->
-    {#if topSets.length > 0}
-        <Row style="margin-top: var(--cds-spacing-08, 2.5rem);">
-            <Column>
-                <h3 class="section-heading">Popular Sets</h3>
-                <p style="font-size: 0.875rem; color: var(--cds-text-secondary, #525252); margin-bottom: var(--cds-spacing-05);">
-                    Fetched from PriceCharting — click to scrape.
+<!-- ── Hero ──────────────────────────────────────────────────── -->
+<section class="hero">
+    <Grid>
+        <Row>
+            <Column lg={12} md={8} sm={4}>
+                <h1>Pokémon Card Price Scraper</h1>
+                <p class="hero-subtitle">
+                    Pull current market prices from PriceCharting.com for any Pokémon
+                    card set and download them as a CSV in seconds.
                 </p>
-                <div class="tag-grid">
-                    {#each topSets as set}
-                        <Tag
-                            interactive
-                            type="teal"
-                            on:click={() => scrapeSet(set.replaceAll(" ", "-"))}
-                        >{set.replaceAll(" ", "-")}</Tag>
+                <form
+                    class="search-form"
+                    on:submit|preventDefault={() => runScraper()}
+                >
+                    <div class="search-wrap">
+                        <Search
+                            placeholder="e.g. pokemon-base-set"
+                            bind:value={toScrape}
+                            disabled={running}
+                        />
+                    </div>
+                    <div class="btn-wrap">
+                        {#if running}
+                            <InlineLoading description="Scraping…" />
+                        {:else}
+                            <Button
+                                type="submit"
+                                disabled={!toScrape.trim() || status !== "success"}
+                            >Scrape</Button>
+                        {/if}
+                    </div>
+                </form>
+            </Column>
+        </Row>
+    </Grid>
+</section>
+
+<!-- ── About PriceCharting ────────────────────────────────────── -->
+<section class="page-section" aria-label="About PriceCharting">
+    <Grid>
+        <Row>
+            <Column lg={8} md={4} sm={4}>
+                <Tile>
+                    <p class="about-heading">What is PriceCharting.com?</p>
+                    <p style="font-size: 0.9375rem; color: var(--text-secondary); line-height: 1.6;">
+                        PriceCharting is a free, community-driven price guide that tracks
+                        real sale prices for video games, consoles, and trading cards —
+                        including every Pokémon TCG set. It aggregates completed sales from
+                        eBay and other marketplaces to give you up-to-date market values
+                        for Ungraded, PSA&nbsp;9, and PSA&nbsp;10 cards.
+                    </p>
+                    <a
+                        class="about-link"
+                        href="https://www.pricecharting.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >Visit PriceCharting.com ↗</a>
+                </Tile>
+            </Column>
+            <Column lg={8} md={4} sm={4}>
+                <Tile>
+                    <p class="about-heading">Why use this scraper?</p>
+                    <ul class="feature-list">
+                        <li>Export an entire set's prices to CSV with one click</li>
+                        <li>Track collection value across Ungraded, PSA 9, and PSA 10 grades</li>
+                        <li>Compare sets side-by-side in Excel or Google Sheets</li>
+                        <li>No account or API key needed</li>
+                    </ul>
+                </Tile>
+            </Column>
+        </Row>
+    </Grid>
+</section>
+
+<!-- ── How It Works ──────────────────────────────────────────── -->
+<section class="page-section" aria-label="How it works">
+    <Grid>
+        <Row>
+            <Column>
+                <span class="section-label">How it works</span>
+            </Column>
+        </Row>
+        <Row>
+            {#each steps as step}
+                <Column lg={5} md={3} sm={4}>
+                    <Tile>
+                        <div class="step-number">{step.number}</div>
+                        <p class="step-heading">{step.heading}</p>
+                        <p class="step-desc">{step.desc}</p>
+                    </Tile>
+                </Column>
+            {/each}
+        </Row>
+    </Grid>
+</section>
+
+<!-- ── Quick Start Sets ──────────────────────────────────────── -->
+<section class="page-section" aria-label="Quick start sets">
+    <Grid>
+        <Row>
+            <Column>
+                <span class="section-label">Quick Start</span>
+                <h2 class="section-heading">Popular sets to try</h2>
+                <div class="tile-grid">
+                    {#each exampleSets as set}
+                        <ClickableTile
+                            class="set-tile"
+                            on:click={(e) => { e.preventDefault(); scrapeSet(set.name); }}
+                        >
+                            <span class="era-badge">{set.era}</span>
+                            <p class="set-name">{set.name}</p>
+                            <p class="set-desc">{set.description}</p>
+                        </ClickableTile>
                     {/each}
                 </div>
             </Column>
         </Row>
-    {/if}
-</Grid>
+    </Grid>
+</section>
+
+<!-- ── Popular Sets ──────────────────────────────────────────── -->
+{#if topSets.length > 0}
+    <section class="page-section" aria-label="Popular sets from PriceCharting">
+        <Grid>
+            <Row>
+                <Column>
+                    <span class="section-label">From PriceCharting</span>
+                    <h2 class="section-heading">Popular Sets</h2>
+                    <p class="section-subtext">
+                        Live data from PriceCharting — click any set to scrape it immediately.
+                    </p>
+                    <Tile>
+                        <div class="tag-grid">
+                            {#each topSets as set}
+                                <Tag
+                                    interactive
+                                    type="blue"
+                                    on:click={() => scrapeSet(set.replaceAll(" ", "-"))}
+                                >{set.replaceAll(" ", "-")}</Tag>
+                            {/each}
+                        </div>
+                    </Tile>
+                </Column>
+            </Row>
+        </Grid>
+    </section>
+{/if}
 
 <style>
-    h1 {
-        font-size: 2.625rem;
-        font-weight: 300;
-        line-height: 1.2;
-    }
-    h3 {
-        font-size: 1.25rem;
-        font-weight: 400;
-    }
-
+    /* ── Status bar ───────────────────────────────────────── */
     .status-dropdown {
         position: fixed;
-        top: 3rem; /* sits directly below the Carbon Header */
+        top: 3rem;
         left: 0;
         right: 0;
         z-index: 8000;
         overflow: hidden;
     }
+
     .status-dropdown__inner {
         display: flex;
         align-items: center;
@@ -262,21 +343,25 @@
         font-size: 0.875rem;
         line-height: 1.3;
     }
+
     .status-dropdown__inner--success {
         background: #defbe6;
         border-bottom: 1px solid #a7f0ba;
         color: #044317;
     }
+
     .status-dropdown__inner--error {
         background: #fff1f1;
         border-bottom: 1px solid #ffd7d9;
         color: #750e13;
     }
+
     .status-dropdown__inner--loading {
         background: var(--cds-layer-01, #f4f4f4);
-        border-bottom: 1px solid var(--cds-border-subtle, #e0e0e0);
+        border-bottom: 1px solid var(--border-color, #e0e0e0);
         padding: 0.5rem 1rem;
     }
+
     .status-dropdown__icon {
         display: inline-flex;
         align-items: center;
@@ -288,17 +373,21 @@
         font-weight: 700;
         flex-shrink: 0;
     }
+
     .status-dropdown__inner--success .status-dropdown__icon {
         background: #198038;
         color: #fff;
     }
+
     .status-dropdown__inner--error .status-dropdown__icon {
         background: #da1e28;
         color: #fff;
     }
+
     .status-dropdown__text {
         flex: 1;
     }
+
     .status-dropdown__dismiss {
         background: none;
         border: none;
@@ -310,6 +399,7 @@
         color: inherit;
         flex-shrink: 0;
     }
+
     .status-dropdown__dismiss:hover {
         opacity: 1;
     }
